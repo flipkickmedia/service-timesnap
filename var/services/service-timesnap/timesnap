@@ -3,114 +3,176 @@
 function create_fs_timesnap() {
   local config_file=$1
   local log_file=$2
-  local excludes=$3
+  local run_date=$3
+  local reserve_space=$4
   #"--exclude '.pnpm' --exclude 'vendor' --exclude '.pnpm-store' --exclude '.wget-hsts' --exclude '.keychain' --exclude '.cme/backup' --exclude '.cme/bin' --exclude '.cme/exports' --exclude '.cme/icons' --exclude '.cme/images' --exclude '.cme/instances"
   # --exclude 'vendor' --exclude '.pnpm-store' --exclude '.wget-hsts' --exclude '.keychain' --exclude '.cme/backup' --exclude '.cme/bin' --exclude '.cme/exports' --exclude '.cme/icons' --exclude '.cme/images' --exclude '.cme/instances'
-  local backup_path=$4
-  local backup_current=$5
-  local run_date=$6
-  local reserve_space=$7
+  local excludes=($($stoml_cmd "${config_file}" "Config.FS.Timesnap.Excludes"))
+  declare -a source_dirs=($($stoml_cmd "${config_file}" "Config.FS.Timesnap.SourceDirs"))
+  local backup_path=$($stoml_cmd "${config_file}" "Config.FS.Timesnap.TargetDir")
   local backup_target="${backup_path}/${run_date}"
-  local backup_source=$8
+  local backup_current="${backup_path}/current"
+  local current_path
+
+  FS_KEEP_DAYS=$($stoml_cmd "${config_file}" "Config.FS.Backup.KeepDays")
+  FS_SOURCE=$($stoml_cmd "${config_file}" "Config.FS.Backup.SourceDir")
+  FS_TARGET=$($stoml_cmd "${config_file}" "Config.FS.Backup.TargetDir")
+
+  local exclude
+  exclude="$(printf -- '--exclude %s ' "${excludes[@]}")"
   {
-    echo "creating timesnap ${backup_path}"
-    echo "excludes:${excludes}"
-    echo "backup_path:${backup_path}"
-    echo "backup_current:${backup_current}"
-    echo "backup_target:${backup_target}"
-    echo "backup_source:${backup_source}"
-    echo "rsync --links --delete --recursive --times --atimes --executability --perms --hard-links --safe-links --force $excludes $backup_source $backup_target"
+    echo "$(date) creating FS timesnap at: ${backup_path}"
+    echo "$(date) exclude           : ${exclude}"
+    echo "$(date) backup_path       : ${backup_path}"
+    echo "$(date) backup_current    : ${backup_current}"
+    echo "$(date) backup_target     : ${backup_target}"
+    echo "$(date) reserve_space     : ${reserve_space}%"
   } >>"${log_file}"
 
-  if [[ ! -d ${backup_path} ]]; then
-    mkdir -p ${backup_path}
-  fi
-
-  if [[ ! -d ${backup_target} ]]; then
-    mkdir -p ${backup_target}
-  fi
-
   if [ ! -L ${backup_current} ] || [ ! -e ${backup_current} ]; then
-    rsync -v --links --delete --recursive --times --atimes --executability --perms --hard-links --safe-links --force $excludes $backup_source $backup_target
+    for current_path in "${source_dirs[@]}"; do
+      if [[ ! -d "${backup_target}${current_path}" ]]; then
+        mkdir -p "${backup_target}${current_path}"
+      fi
+      # echo rsync -v --links --delete --recursive --times --atimes --executability --perms --hard-links --safe-links --force $exclude "${current_path}/" "${backup_target}${current_path}" >>"${log_file}"
+      rsync -v --links --delete --recursive --times --atimes --executability --perms --hard-links --safe-links --force $exclude "${current_path}/" "${backup_target}${current_path}"
+    done
     ln -s $backup_target $backup_current
   else
-    rsync -v --links --delete --recursive --archive --atimes --executability --hard-links --safe-links --force --exclude '.pnpm' --link-dest=$backup_current $backup_source $backup_target
+    for current_path in "${source_dirs[@]}"; do
+      if [[ ! -d "${backup_target}${current_path}" ]]; then
+        mkdir -p "${backup_target}${current_path}"
+      fi
+      #echo rsync -v --links --delete --recursive --archive --atimes --executability --hard-links --safe-links --force $exclude --link-dest="${current_path}" "${current_path}/" "${backup_target}${current_path}" >>"${log_file}"
+      rsync -v --links --delete --recursive --archive --atimes --executability --hard-links --safe-links --force $exclude --link-dest="${current_path}" "${current_path}/" "${backup_target}${current_path}"
+    done
     rm $backup_current
     ln -s $backup_target $backup_current
   fi
 
   # check space left on device, remove oldest directory whilst space is above 95%
   local device=$(df -P $backup_path | awk 'END{print $1}')
-  space=$(df | grep ${device} | awk '{print $4}')
-  if [[ $space -gt $reserve_space ]]; then
-    echo "space remaining: ${space}"
+  space=$(df | grep ${device} | awk '{print $5}')
+  space=${space//%/}
+  if [[ $space -le $reserve_space ]]; then
+    echo "$(date) space remaining   : ${space}%" >>"$log_file"
   fi
 
-  while [[ $space -lt $reserve_space ]]; do
-    echo removing ${oldest}
-    oldest=$(ls -c1 ${backup_path} | head -1)
-    rm -rf $oldest
-    space=$(df | grep ${device} | awk '{print $4}')
+  while [[ $space -gt $reserve_space ]]; do
+    echo "$(date) not enough space left ($space%) on removing ${oldest}" >>"$log_file"
+    oldest=$(ls -t1 ${backup_path} | tail -n1)
+    if [[ $oldest == "current" ]]; then
+      break
+    fi
+    rm -rf "${backup_path:?}/${oldest}" >>"$log_file"
+    space=$(df | grep "${device}" | awk '{print $5}')
+    space=${space//%/}
+    echo "space left: $space" >>"$log_file"
+    ((count = count + 1))
   done
 }
 
+# shellcheck disable=SC2155
 function create_db_timesnap() {
   local config_file=$1
   local log_file=$2
-  local databases=$2
   #"--exclude '.pnpm' --exclude 'vendor' --exclude '.pnpm-store' --exclude '.wget-hsts' --exclude '.keychain' --exclude '.cme/backup' --exclude '.cme/bin' --exclude '.cme/exports' --exclude '.cme/icons' --exclude '.cme/images' --exclude '.cme/instances"
   # --exclude 'vendor' --exclude '.pnpm-store' --exclude '.wget-hsts' --exclude '.keychain' --exclude '.cme/backup' --exclude '.cme/bin' --exclude '.cme/exports' --exclude '.cme/icons' --exclude '.cme/images' --exclude '.cme/instances'
-  local backup_path=$4
-  local backup_current=$5
-  local run_date=$6
-  local reserve_space=$7
-  local backup_target="${backup_path}/${run_date}"
-  local backup_source=$8
+  local run_date=$3
+  local reserve_space=$4
+  local DSN
+  local PROFILE=$($stoml_cmd "${config_file}" "Config.DB.Timesnap.DBProfile")
+  local NAME=$($stoml_cmd "${config_file}" "Config.Name")
+  local USER=$($stoml_cmd "${config_file}" "Config.DB.${PROFILE}.User")
+  local PASS=$($stoml_cmd "${config_file}" "Config.DB.${PROFILE}.Password")
+  local HOST=$($stoml_cmd "${config_file}" "Config.DB.${PROFILE}.Host")
+  local PORT=$($stoml_cmd "${config_file}" "Config.DB.${PROFILE}.Port")
+  local SOCK=$($stoml_cmd "${config_file}" "Config.DB.${PROFILE}.Sock")
+  local databases=($($stoml_cmd "${config_file}" "Config.DB.Timesnap.Databases"))
+  local DB_KEEP_DAYS=$($stoml_cmd "${config_file}" "Config.DB.Backup.KeepDays")
+  local backup_path=$($stoml_cmd "${config_file}" "Config.DB.Timesnap.TargetDir")
+  local log_dir=$(realpath "$(dirname "${log_file}")")
+  local backup_current="${backup_path}/current"
+  local sql_dump_file="${backup_path}/${run_date}-${NAME}.sql"
+
+  if [[ ! -d "${backup_path}" ]]; then
+    mkdir -p "${backup_path}"
+    echo "$(date) created ${backup_path}" >>"$log_file"
+  fi
+
+  if [[ -n ${HOST} ]]; then
+    DSN="--protocol=TCP -H ${HOST} -P ${PORT} -u ${USER} -p ${PASS}"
+  elif [[ -n ${SOCK} ]]; then
+    # shellcheck disable=SC2089
+    DSN="--protocol=socket -S '${SOCK}' -u '${USER}' -p '${PASS}'"
+  fi
+
+  if [[ -n $databases ]]; then
+    # shellcheck disable=SC2089
+    mkdir -p /tmp/cme/backup
+    printf "%s\n" "${databases[@]}" >/tmp/cme/backup/${run_date}.db.names
+    DATABASES="--databases-file=/tmp/cme/backup/${run_date}.db.names"
+  fi
+
   {
-    echo "creating timesnap ${backup_path}"
-    echo "$(date) port          : ${PORT}"
-    echo "$(date) user          : ${USER}"
-    echo "$(date) sock          : ${SOCK}"
-    echo "$(date) name          : ${NAME}"
-    echo "$(date) pass          : *******"
-    echo "$(date) sql_dump_file : ${sql_dump_file}"
-    echo "$(date) source_dir    : ${source_dir}"
-    echo "$(date) target_dir    : ${target_dir}"
-  }
-  
-  DB_PROFILE=$($stoml_cmd "${config_file}" "Config.DB.Timesnap.Profile")
-  USER=$($stoml_cmd "${config_file}" "Config.DB.${DB_PROFILE}.User")
-  PASS=$($stoml_cmd "${config_file}" "Config.DB.${DB_PROFILE}.Password")
+    echo "$(date) creating DB timesnap at: ${backup_path}"
+    echo "$(date) port              : ${PORT}"
+    echo "$(date) user              : ${USER}"
+    echo "$(date) sock              : ${SOCK}"
+    echo "$(date) name              : ${NAME}"
+    echo "$(date) pass              : *******"
+    echo "$(date) config_file       : ${config_file}"
+    echo "$(date) log_dir           : ${log_dir}"
+    echo "$(date) log_file          : ${log_file}"
+    echo "$(date) databases         : ${DATABASES[*]}"
+    echo "$(date) backup_path       : ${backup_path}"
+    echo "$(date) dsn               : ******"
+  } >>"$log_file"
 
-  if [ ! -d ${backup_target} ]; then
-    mkdir -p "${backup_target}/current"
+  local mariadb_backup_cmdout
+  # incremental backup
+  # load the date from the last file and use this as a basis for the next increment
+  if [ -f "${backup_path}/last.mariadb" ]; then
+    echo "$(date) creating incremental DB backup" >>"${log_file}"
+    od=$(cat "${backup_path}/last.mariadb")
+    # shellcheck disable=SC2090
+    backup_cmd="mariadb-backup --backup $DSN --target-dir ${backup_path}/${run_date} --incremental-basedir ${backup_path}/${od} ${DATABASES}"
+    #echo $backup_cmd >>"${log_file}"
+    $backup_cmd >"${backup_path}/last.mariadb.log" 2>&1
+    if [[ $? ]]; then
+      echo "${run_date}" >"${backup_path}/last.mariadb"
+      rm "${backup_path}/current"
+      ln -s "${backup_path}/${run_date}" "${backup_path}/current"
+      {
+        echo "$(date) MariaDB incremental backup complete" >>"${log_file}"
+        echo "$(date) stored at ${backup_path}/mariadb-${run_date}" >>"${log_file}"
+      } >>"$log_file"
+    else
+      echo "$(date) incremental DB backup failed" >>"${log_file}"
+    fi
+
   fi
 
-  if [ -f "${backup_target}/last.mariadb" ]; then
-    # incremental backup
-    od=$(cat "${backup_target}/last.mariadb")
-    echo ${run_date} >"${backup_target}/last.mariadb"
-    mariadb-backup --backup --databases="${databases}" --target-dir="${backup_target}/mariadb-${d}" --incremental-basedir="${backup_target}/mariadb-${od}" --user="${USER}" --password="${PASS}"
+  # full backup
+  # uses options stored in /etc/mysql/mariadb.conf.d/70-backup.cnf
+  if [ ! -f "${backup_path}/last.mariadb" ]; then
+    echo "$(date) creating initial DB backup for ${databases}" >>"${log_file}"
+    backup_cmd="mariadb-backup --backup $DSN --target-dir ${backup_path}/${run_date} $DATABASES"
+    #echo $backup_cmd >>"${log_file}"
+    $backup_cmd >"${backup_path}/last.mariadb.log" 2>&1
     if [[ $? -eq 0 ]]; then
-      mv "${backup_target}/current" "${backup_target}/mariadb-${od}"
-      echo "MariaDB incremental backup complete"
-      echo "stored at ${backup_target}/mariadb-${d}"
+      echo ${run_date} >"${backup_path}/last.mariadb"
+      echo "$(date) MariaDB initial backup complete for database:${DATABASES}" >>"${log_file}"
+      echo "$(date) stored at ${backup_path}/mariadb-${run_date}" >>"${log_file}"
+      rm "${backup_path}/current"
+      ln -s "${backup_path}/${run_date}" "${backup_path}/current"
     else
-      echo "incremental backup failed"
+      echo "$(date) full DB backup failed" >>"${log_file}"
     fi
   fi
 
-  if [ ! -f "${backup_target}/last.mariadb" ]; then
-    # full backup
-    # uses options stored in /etc/mysql/mariadb.conf.d/70-backup.cnf
-    mariadb-backup --backup --target-dir="${backup_target}/mariadb-${d}" --user="${USER}" --password="${PASS}"
-
-    if [[ $? -eq 0 ]]; then
-      echo ${d} >"${backup_target}/last.mariadb"
-      echo "MariaDB full backup complete"
-      echo "stored at ${backup_target}/mariadb-${d}"
-    else
-      echo "full backup failed"
-    fi
+  if [[ -f /tmp/cme/backup/${run_date}.db.names ]]; then
+    rm /tmp/cme/backup/${run_date}.db.names
   fi
+  # @todo clean up names files which are very old (more than keep days)
 }

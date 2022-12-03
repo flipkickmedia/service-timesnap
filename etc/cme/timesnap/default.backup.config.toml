@@ -1,6 +1,6 @@
-# Edit this config to suit your environment
+# These settings are used as defaults
 [Config]
-BaseConfig = "/etc/cme/timesnap/default.backup.toml"
+BaseConfig = "/etc/cme/timesnap/default.backup.config.toml"
 Description = "An example service"
 Environment = "development"
 Name = "Some Service"
@@ -25,7 +25,7 @@ User = "mysql"
 
 [Config.DB.Timesnap]
 BinaryDump = true
-Databases = ["db1", "somedb2"]
+Databases = []
 Incremental = true
 KeepDays = 30
 DBProfile = "Backup"
@@ -37,8 +37,9 @@ Excludes = ["/var/www/logs", "/var/www/htdocs"]
 KeepDays = 30
 Minspace = 95
 SourceDir = ["/root", "/var/www"]
-TargetHost = "ninja.flipkick.media"
+TargetHost = "localhost"
 TargetDir = "/backup/www-backup/fs"
 
 [Config.Log]
 File = "/var/log/timesnap.backup.log"
+
