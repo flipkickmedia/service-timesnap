@@ -5,10 +5,8 @@ function create_fs_timesnap() {
   local log_file=$2
   local run_date=$3
   local reserve_space=$4
-
   #"--exclude '.pnpm' --exclude 'vendor' --exclude '.pnpm-store' --exclude '.wget-hsts' --exclude '.keychain' --exclude '.cme/backup' --exclude '.cme/bin' --exclude '.cme/exports' --exclude '.cme/icons' --exclude '.cme/images' --exclude '.cme/instances"
   # --exclude 'vendor' --exclude '.pnpm-store' --exclude '.wget-hsts' --exclude '.keychain' --exclude '.cme/backup' --exclude '.cme/bin' --exclude '.cme/exports' --exclude '.cme/icons' --exclude '.cme/images' --exclude '.cme/instances'
-  local backup_source=$8
   local excludes=($($stoml_cmd "${config_file}" "Config.FS.Timesnap.Excludes"))
   declare -a source_dirs=($($stoml_cmd "${config_file}" "Config.FS.Timesnap.SourceDirs"))
   local backup_path=$($stoml_cmd "${config_file}" "Config.FS.Timesnap.TargetDir")
@@ -23,11 +21,12 @@ function create_fs_timesnap() {
   local exclude
   exclude="$(printf -- '--exclude %s ' "${excludes[@]}")"
   {
-    echo "$(date) creating timesnap ${backup_path}"
-    echo "$(date) exclude:${exclude}"
-    echo "$(date) backup_path:${backup_path}"
-    echo "$(date) backup_current:${backup_current}"
-    echo "$(date) backup_source:${backup_source}"
+    echo "$(date) creating FS timesnap at: ${backup_path}"
+    echo "$(date) exclude           : ${exclude}"
+    echo "$(date) backup_path       : ${backup_path}"
+    echo "$(date) backup_current    : ${backup_current}"
+    echo "$(date) backup_target     : ${backup_target}"
+    echo "$(date) reserve_space     : ${reserve_space}%"
   } >>"${log_file}"
 
   if [ ! -L ${backup_current} ] || [ ! -e ${backup_current} ]; then
@@ -53,16 +52,23 @@ function create_fs_timesnap() {
 
   # check space left on device, remove oldest directory whilst space is above 95%
   local device=$(df -P $backup_path | awk 'END{print $1}')
-  space=$(df | grep ${device} | awk '{print $4}')
-  if [[ $space -gt $reserve_space ]]; then
-    echo "$(date) space remaining: ${space}" >>"$log_file"
+  space=$(df | grep ${device} | awk '{print $5}')
+  space=${space//%/}
+  if [[ $space -le $reserve_space ]]; then
+    echo "$(date) space remaining   : ${space}%" >>"$log_file"
   fi
 
-  while [[ $space -lt $reserve_space ]]; do
+  while [[ $space -gt $reserve_space ]]; do
     echo "$(date) not enough space left ($space%) on removing ${oldest}" >>"$log_file"
-    oldest=$(ls -c1 ${backup_current} | head -1)
-    rm -rf $oldest
-    space=$(df | grep ${device} | awk '{print $4}')
+    oldest=$(ls -t1 ${backup_path} | tail -n1)
+    if [[ $oldest == "current" ]]; then
+      break
+    fi
+    rm -rf "${backup_path:?}/${oldest}" >>"$log_file"
+    space=$(df | grep "${device}" | awk '{print $5}')
+    space=${space//%/}
+    echo "space left: $space" >>"$log_file"
+    ((count = count + 1))
   done
 }
 
@@ -109,18 +115,18 @@ function create_db_timesnap() {
   fi
 
   {
-    echo "$(date) creating DB timesnap at ${backup_path}"
-    echo "$(date) port          : ${PORT}"
-    echo "$(date) user          : ${USER}"
-    echo "$(date) sock          : ${SOCK}"
-    echo "$(date) name          : ${NAME}"
-    echo "$(date) pass          : *******"
-    echo "$(date) config_file   : ${config_file}"
-    echo "$(date) log_dir       : ${log_dir}"
-    echo "$(date) log_file      : ${log_file}"
-    echo "$(date) databases     : ${DATABASES[*]}"
-    echo "$(date) backup_path   : ${backup_path}"
-    echo "$(date) dsn           : ******"
+    echo "$(date) creating DB timesnap at: ${backup_path}"
+    echo "$(date) port              : ${PORT}"
+    echo "$(date) user              : ${USER}"
+    echo "$(date) sock              : ${SOCK}"
+    echo "$(date) name              : ${NAME}"
+    echo "$(date) pass              : *******"
+    echo "$(date) config_file       : ${config_file}"
+    echo "$(date) log_dir           : ${log_dir}"
+    echo "$(date) log_file          : ${log_file}"
+    echo "$(date) databases         : ${DATABASES[*]}"
+    echo "$(date) backup_path       : ${backup_path}"
+    echo "$(date) dsn               : ******"
   } >>"$log_file"
 
   local mariadb_backup_cmdout
@@ -132,7 +138,7 @@ function create_db_timesnap() {
     # shellcheck disable=SC2090
     backup_cmd="mariadb-backup --backup $DSN --target-dir ${backup_path}/${run_date} --incremental-basedir ${backup_path}/${od} ${DATABASES}"
     #echo $backup_cmd >>"${log_file}"
-    mariadb_backup_cmdout=$($backup_cmd 2>&1)
+    $backup_cmd >"${backup_path}/last.mariadb.log" 2>&1
     if [[ $? ]]; then
       echo "${run_date}" >"${backup_path}/last.mariadb"
       rm "${backup_path}/current"
@@ -144,7 +150,7 @@ function create_db_timesnap() {
     else
       echo "$(date) incremental DB backup failed" >>"${log_file}"
     fi
-    echo -e ${mariadb_backup_cmdout} >"${backup_path}/last.mariadb.log"
+
   fi
 
   # full backup
@@ -153,7 +159,7 @@ function create_db_timesnap() {
     echo "$(date) creating initial DB backup for ${databases}" >>"${log_file}"
     backup_cmd="mariadb-backup --backup $DSN --target-dir ${backup_path}/${run_date} $DATABASES"
     #echo $backup_cmd >>"${log_file}"
-    mariadb_backup_cmdout=$($backup_cmd 2>&1)
+    $backup_cmd >"${backup_path}/last.mariadb.log" 2>&1
     if [[ $? -eq 0 ]]; then
       echo ${run_date} >"${backup_path}/last.mariadb"
       echo "$(date) MariaDB initial backup complete for database:${DATABASES}" >>"${log_file}"
@@ -163,7 +169,6 @@ function create_db_timesnap() {
     else
       echo "$(date) full DB backup failed" >>"${log_file}"
     fi
-    echo -e ${mariadb_backup_cmdout} >${backup_path}/last.mariadb.log
   fi
 
   if [[ -f /tmp/cme/backup/${run_date}.db.names ]]; then
