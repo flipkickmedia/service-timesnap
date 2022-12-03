@@ -48,3 +48,18 @@ Minspace = 95
 [Config.Log]
 File = "/var/www/git.flipkick.media/logs/timesnap-backup.log"
 ```
+
+source the timesnap script into your script, or call the script directly
+```
+$ run_date=$(date +%s)
+$ config_file=/etc/cme/timesnap/example.backup.config.toml
+$ log_file=/etc/cme/timesnap/example.backup.config.toml
+$ timesnap db ${run_date} "${config_file}" "${log_file}"
+```
+
+create_db_timesnap "${config_file}" "${log_file}" "gitea" ${FS_SOURCE} "${FS_TARGET}/current" $run_date 95 $target_dir
+create_fs_timesnap "${config_file}" "${log_file}" "" ${FS_SOURCE} "${FS_TARGET}/current" $run_date 95 $target_dir
+
+service gitea start
+
+```
