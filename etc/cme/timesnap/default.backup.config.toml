@@ -28,7 +28,7 @@ BinaryDump = true
 Databases = []
 Incremental = true
 KeepDays = 30
-Profile = "Backup"
+DBProfile = "Backup"
 SQLDump = false
 TargetDir = "/backup/www-backup/db"
 
@@ -42,3 +42,4 @@ TargetDir = "/backup/www-backup/fs"
 
 [Config.Log]
 File = "/var/log/timesnap.backup.log"
+

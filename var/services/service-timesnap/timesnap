@@ -81,7 +81,7 @@ function create_db_timesnap() {
   local run_date=$3
   local reserve_space=$4
   local DSN
-  local PROFILE=$($stoml_cmd "${config_file}" "Config.DB.Timesnap.Profile")
+  local PROFILE=$($stoml_cmd "${config_file}" "Config.DB.Timesnap.DBProfile")
   local NAME=$($stoml_cmd "${config_file}" "Config.Name")
   local USER=$($stoml_cmd "${config_file}" "Config.DB.${PROFILE}.User")
   local PASS=$($stoml_cmd "${config_file}" "Config.DB.${PROFILE}.Password")

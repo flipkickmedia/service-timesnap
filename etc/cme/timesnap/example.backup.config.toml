@@ -28,7 +28,7 @@ BinaryDump = true
 Databases = ["db1", "somedb2"]
 Incremental = true
 KeepDays = 30
-Profile = "Backup"
+DBProfile = "Backup"
 SQLDump = false
 TargetDir = "/backup/www-backup/db"
 
