@@ -1,12 +1,3 @@
-# service-timesnap
-
-Provides an incremental time based backup service for any deployed system which requires filesystem or database backup
-
-# Add a system to backup
-
-/etc/cme/backup/<name>.config.toml
-
-```
 [Config]
 Environment = "development"
 Name = "Some Service"
@@ -47,4 +38,3 @@ Minspace = 95
 
 [Config.Log]
 File = "/var/www/git.flipkick.media/logs/timesnap-backup.log"
-```
